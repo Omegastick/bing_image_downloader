@@ -8,6 +8,8 @@ try:
 except ImportError:  # Python 3
     from .bing import Bing
 
+import asyncio
+
 
 def download(
     query,
@@ -44,8 +46,8 @@ def download(
 
     print("[%] Downloading Images to {}".format(str(image_dir.absolute())))
     bing = Bing(query, limit, image_dir, adult, timeout, filter, verbose, write_metadata)
-    bing.run()
+    asyncio.run(bing.run())
 
 
 if __name__ == "__main__":
-    download("dog", output_dir=".", limit=10, timeout=1, write_metadata=True)
+    download("dog", output_dir=".", limit=10, timeout=10, write_metadata=True)

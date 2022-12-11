@@ -2,14 +2,15 @@
 Python api to download image form Bing.
 Author: Guru Prasad (g.gaurav541@gmail.com)
 """
+import asyncio
 import imghdr
 import json
 import posixpath
 import urllib.parse
-import urllib.request
 from dataclasses import dataclass
-from typing import List, Set, cast
+from typing import Coroutine, List, Set, cast
 
+import aiohttp
 from bs4 import BeautifulSoup, PageElement
 
 
@@ -63,9 +64,9 @@ class Bing:
         else:
             return ""
 
-    def save_image(self, item: BingItem, file_path: str):
-        request = urllib.request.Request(item.link, None, self.headers)
-        image = urllib.request.urlopen(request, timeout=self.timeout).read()
+    async def save_image(self, item: BingItem, file_path: str, session: aiohttp.ClientSession):
+        response = await session.get(item.link, headers=self.headers, timeout=self.timeout)
+        image = await response.read()
 
         if not imghdr.what(None, image):
             print("[Error]Invalid image, not saving {}\n".format(item.link))
@@ -83,7 +84,7 @@ class Bing:
             with open(str(file_path) + ".json", "w") as f:
                 json.dump(metadata, f)
 
-    def download_image(self, item: BingItem):
+    async def download_image(self, item: BingItem, session: aiohttp.ClientSession):
         self.download_count += 1
         # Get the image link
         try:
@@ -97,18 +98,17 @@ class Bing:
                 # Download the image
                 print("[%] Downloading Image #{} from {}".format(self.download_count, item.link))
 
-            self.save_image(
-                item,
-                self.output_dir.joinpath("Image_{}.{}".format(str(self.download_count), file_type)),
+            await self.save_image(
+                item, self.output_dir.joinpath("Image_{}.{}".format(str(self.download_count), file_type)), session
             )
             if self.verbose:
-                print("[%] File Downloaded !\n")
+                print(f"[%] Downloaded {item.link} !")
 
         except Exception as e:
             self.download_count -= 1
             print("[!] Issue getting: {}\n[!] Error:: {}".format(item.link, e))
 
-    def run(self):
+    async def run(self):
         while self.download_count < self.limit:
             if self.verbose:
                 print("\n\n[!!]Indexing page: {}\n".format(self.page_counter + 1))
@@ -145,10 +145,14 @@ class Bing:
                 print("[%] Indexed {} Images on Page {}.".format(len(items), self.page_counter + 1))
                 print("\n===============================================\n")
 
-            for item in items:
-                if self.download_count < self.limit and item.link not in self.seen:
-                    self.seen.add(item.link)
-                    self.download_image(item)
+            tasks: List[Coroutine] = []
+            async with aiohttp.ClientSession() as session:
+                for item in items:
+                    if self.download_count < self.limit and item.link not in self.seen:
+                        self.seen.add(item.link)
+                        tasks.append(self.download_image(item, session))
+
+                await asyncio.gather(*tasks)
 
             self.page_counter += 1
         print("\n\n[%] Done. Downloaded {} images.".format(self.download_count))
