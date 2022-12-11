@@ -18,6 +18,7 @@ def download(
     timeout=60,
     filter="",
     verbose=True,
+    write_metadata=False,
 ):
 
     # engine = 'bing'
@@ -42,9 +43,9 @@ def download(
         sys.exit(1)
 
     print("[%] Downloading Images to {}".format(str(image_dir.absolute())))
-    bing = Bing(query, limit, image_dir, adult, timeout, filter, verbose)
+    bing = Bing(query, limit, image_dir, adult, timeout, filter, verbose, write_metadata)
     bing.run()
 
 
 if __name__ == "__main__":
-    download("dog", output_dir=".", limit=10, timeout=1)
+    download("dog", output_dir=".", limit=10, timeout=1, write_metadata=True)

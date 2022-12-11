@@ -2,23 +2,34 @@
 Python api to download image form Bing.
 Author: Guru Prasad (g.gaurav541@gmail.com)
 """
-
 import imghdr
+import json
 import posixpath
-import re
-import urllib
+import urllib.parse
 import urllib.request
+from dataclasses import dataclass
+from typing import List, Set, cast
+
+from bs4 import BeautifulSoup, PageElement
+
+
+@dataclass
+class BingItem:
+    link: str
+    title: str
+    description: str
 
 
 class Bing:
-    def __init__(self, query, limit, output_dir, adult, timeout, filter="", verbose=True):
+    def __init__(self, query, limit, output_dir, adult, timeout, filter="", verbose=True, write_metadata: bool = False):
         self.download_count = 0
         self.query = query
         self.output_dir = output_dir
         self.adult = adult
         self.filter = filter
         self.verbose = verbose
-        self.seen = set()
+        self.write_metadata = write_metadata
+        self.seen: Set[str] = set()
 
         assert type(limit) == int, "limit must be integer"
         self.limit = limit
@@ -52,20 +63,31 @@ class Bing:
         else:
             return ""
 
-    def save_image(self, link, file_path):
-        request = urllib.request.Request(link, None, self.headers)
+    def save_image(self, item: BingItem, file_path: str):
+        request = urllib.request.Request(item.link, None, self.headers)
         image = urllib.request.urlopen(request, timeout=self.timeout).read()
+
         if not imghdr.what(None, image):
-            print("[Error]Invalid image, not saving {}\n".format(link))
-            raise ValueError("Invalid image, not saving {}\n".format(link))
+            print("[Error]Invalid image, not saving {}\n".format(item.link))
+            raise ValueError("Invalid image, not saving {}\n".format(item.link))
+
         with open(str(file_path), "wb") as f:
             f.write(image)
 
-    def download_image(self, link):
+        if self.write_metadata:
+            metadata = {
+                "source": "bing",
+                "title": item.title,
+                "description": item.description,
+            }
+            with open(str(file_path) + ".json", "w") as f:
+                json.dump(metadata, f)
+
+    def download_image(self, item: BingItem):
         self.download_count += 1
         # Get the image link
         try:
-            path = urllib.parse.urlsplit(link).path
+            path = urllib.parse.urlsplit(item.link).path
             filename = posixpath.basename(path).split("?")[0]
             file_type = filename.split(".")[-1]
             if file_type.lower() not in ["jpe", "jpeg", "jfif", "exif", "tiff", "gif", "bmp", "png", "webp", "jpg"]:
@@ -73,15 +95,18 @@ class Bing:
 
             if self.verbose:
                 # Download the image
-                print("[%] Downloading Image #{} from {}".format(self.download_count, link))
+                print("[%] Downloading Image #{} from {}".format(self.download_count, item.link))
 
-            self.save_image(link, self.output_dir.joinpath("Image_{}.{}".format(str(self.download_count), file_type)))
+            self.save_image(
+                item,
+                self.output_dir.joinpath("Image_{}.{}".format(str(self.download_count), file_type)),
+            )
             if self.verbose:
                 print("[%] File Downloaded !\n")
 
         except Exception as e:
             self.download_count -= 1
-            print("[!] Issue getting: {}\n[!] Error:: {}".format(link, e))
+            print("[!] Issue getting: {}\n[!] Error:: {}".format(item.link, e))
 
     def run(self):
         while self.download_count < self.limit:
@@ -106,15 +131,24 @@ class Bing:
             if html == "":
                 print("[%] No more images are available")
                 break
-            links = re.findall("murl&quot;:&quot;(.*?)&quot;", html)
+
+            soup = BeautifulSoup(html, "html.parser")
+            items: List[BingItem] = []
+            for item in soup.find_all("li", {"data-idx": True}):
+                item = cast(PageElement, item)
+                item_link = item.find("a", {"class": "iusc"})
+                if not item_link:
+                    continue
+                link_data = json.loads(item_link.get("m"))
+                items.append(BingItem(link=link_data["murl"], title=link_data["t"], description=link_data["desc"]))
             if self.verbose:
-                print("[%] Indexed {} Images on Page {}.".format(len(links), self.page_counter + 1))
+                print("[%] Indexed {} Images on Page {}.".format(len(items), self.page_counter + 1))
                 print("\n===============================================\n")
 
-            for link in links:
-                if self.download_count < self.limit and link not in self.seen:
-                    self.seen.add(link)
-                    self.download_image(link)
+            for item in items:
+                if self.download_count < self.limit and item.link not in self.seen:
+                    self.seen.add(item.link)
+                    self.download_image(item)
 
             self.page_counter += 1
         print("\n\n[%] Done. Downloaded {} images.".format(self.download_count))
