@@ -24,6 +24,7 @@ class BingItem:
 class Bing:
     def __init__(self, query, limit, output_dir, adult, timeout, filter="", verbose=True, write_metadata: bool = False):
         self.download_count = 0
+        self.found_count = 0
         self.query = query
         self.output_dir = output_dir
         self.adult = adult
@@ -86,6 +87,7 @@ class Bing:
 
     async def download_image(self, item: BingItem, session: aiohttp.ClientSession):
         self.download_count += 1
+        self.found_count += 1
         # Get the image link
         try:
             path = urllib.parse.urlsplit(item.link).path
@@ -96,10 +98,10 @@ class Bing:
 
             if self.verbose:
                 # Download the image
-                print("[%] Downloading Image #{} from {}".format(self.download_count, item.link))
+                print("[%] Downloading Image #{} from {}".format(self.found_count, item.link))
 
             await self.save_image(
-                item, self.output_dir.joinpath("Image_{}.{}".format(str(self.download_count), file_type)), session
+                item, self.output_dir.joinpath("Image_{}.{}".format(str(self.found_count), file_type)), session
             )
             if self.verbose:
                 print(f"[%] Downloaded {item.link} !")
